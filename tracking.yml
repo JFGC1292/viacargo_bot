@@ -19,7 +19,6 @@ jobs:
         uses: actions/setup-python@v5
         with:
           python-version: "3.11"
-          cache: "pip"
 
       - name: Evitar paquetes recomendados de apt
         # Sin esto, "playwright install --with-deps" también baja fuentes
