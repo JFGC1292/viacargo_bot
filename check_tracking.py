@@ -25,10 +25,6 @@ DELIVERED_KEYWORDS = [
     "entrega realizada",
     "entrega exitosa",
     "envío entregado",
-    "Entregado",
-    "Entregada",
-    "ENTREGADO",
-    "ENTREGADA",
 ]
 
 
