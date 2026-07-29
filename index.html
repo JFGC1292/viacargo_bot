@@ -1,0 +1,87 @@
+<!doctype html>
+<html lang="es">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Panel de Guías — Via Cargo</title>
+<link rel="stylesheet" href="style.css" />
+</head>
+<body>
+  <div class="wrap">
+
+    <div class="top">
+      <div>
+        <p class="eyebrow">Depósito digital</p>
+        <h1>Panel de Guías</h1>
+        <p class="subtitle">Via Cargo · seguimiento automático por Telegram</p>
+      </div>
+      <button class="gear-btn" id="gearBtn" title="Configuración" aria-label="Abrir configuración">
+        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+          <circle cx="12" cy="12" r="3"></circle>
+          <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06A1.65 1.65 0 0 0 4.6 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06A1.65 1.65 0 0 0 9 4.6a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"></path>
+        </svg>
+      </button>
+    </div>
+
+    <div class="drawer" id="drawer">
+      <div class="drawer-inner">
+        <h2>Conexión con el repositorio</h2>
+        <p class="hint">
+          Estos datos se guardan solo en tu navegador (localStorage), nunca se envían a
+          ningún lado más que a GitHub. Usá un token de acceso personal (fine-grained)
+          con permiso de lectura y escritura de "Contents" limitado a este repositorio.
+        </p>
+        <div class="field-row">
+          <div class="field">
+            <label for="cfgOwner">Usuario / organización</label>
+            <input id="cfgOwner" type="text" placeholder="tu-usuario" autocomplete="off" />
+          </div>
+          <div class="field">
+            <label for="cfgRepo">Repositorio</label>
+            <input id="cfgRepo" type="text" placeholder="panel-guias" autocomplete="off" />
+          </div>
+        </div>
+        <div class="field-row">
+          <div class="field">
+            <label for="cfgBranch">Rama</label>
+            <input id="cfgBranch" type="text" placeholder="main" autocomplete="off" />
+          </div>
+          <div class="field">
+            <label for="cfgToken">Token de GitHub</label>
+            <input id="cfgToken" type="password" placeholder="github_pat_..." autocomplete="off" />
+          </div>
+        </div>
+        <div class="drawer-actions">
+          <button class="btn-save" id="saveCfgBtn">Guardar</button>
+          <span class="save-status" id="cfgStatus"></span>
+        </div>
+      </div>
+    </div>
+
+    <div class="stub">
+      <p class="stub-label">Cargar nueva guía</p>
+      <form class="stub-form" id="addForm">
+        <input id="guideInput" type="text" placeholder="Número de guía, ej: 999037257969" autocomplete="off" inputmode="numeric" />
+        <button class="btn-stamp" id="addBtn" type="submit">Sellar ▸</button>
+      </form>
+      <p class="form-msg" id="formMsg"></p>
+    </div>
+
+    <div class="list-head">
+      <span class="list-title">En depósito</span>
+      <span class="list-count" id="listCount">—</span>
+    </div>
+
+    <div id="listArea">
+      <p class="loading">Cargando guías…</p>
+    </div>
+
+    <footer class="note">
+      <span class="dot">●</span>
+      Se revisa automáticamente cada 30 min · te avisamos por Telegram apenas llegue
+    </footer>
+  </div>
+
+  <script src="app.js"></script>
+</body>
+</html>
