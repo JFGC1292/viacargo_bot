@@ -22,6 +22,7 @@ DATA_FILE = "guias.json"
 # primer run manual (workflow_dispatch) del workflow.
 DELIVERED_KEYWORDS = [
     "entregado",
+    "entregada",
     "entrega realizada",
     "entrega exitosa",
     "envío entregado",
@@ -45,28 +46,28 @@ def save_guias(items: list[dict]) -> None:
 def check_one(page, numero: str) -> str:
     """Devuelve el texto renderizado de la página de seguimiento de una guía.
 
-    En vez de esperar un tiempo fijo, espera a que el texto de la página
-    deje de cambiar (indicio de que ya terminó de cargar el estado real,
-    no solo el esqueleto/menú del sitio), hasta un máximo de ~20s.
+    El menú/encabezado del sitio se estabiliza casi al instante, pero el
+    timeline real del envío tarda más en aparecer. Por eso no alcanza con
+    esperar a que el texto "deje de cambiar": hay que esperar a que
+    aparezca algo que solo existe una vez cargado el historial real, como
+    una fecha con formato DD/MM/AAAA (aparece en cada evento del timeline).
     """
     url = f"{BASE_URL}{numero}"
     page.goto(url, wait_until="domcontentloaded", timeout=60000)
 
-    previous_length = -1
-    stable_checks = 0
-    text = ""
-    for _ in range(20):
-        page.wait_for_timeout(1000)
-        text = page.inner_text("body")
-        if len(text) == previous_length:
-            stable_checks += 1
-            if stable_checks >= 2:
-                break
-        else:
-            stable_checks = 0
-        previous_length = len(text)
+    try:
+        page.wait_for_function(
+            "() => /\\d{2}\\/\\d{2}\\/\\d{4}/.test(document.body.innerText)",
+            timeout=20000,
+        )
+    except Exception:
+        # Si en 20s no apareció ninguna fecha, seguimos igual con lo que
+        # haya en pantalla (probablemente un error real de la guía, o el
+        # sitio tardó más de lo esperado).
+        pass
 
-    return text
+    page.wait_for_timeout(800)  # margen chico extra por si sigue pintando
+    return page.inner_text("body")
 
 
 def _normalize(s: str) -> str:
