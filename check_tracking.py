@@ -77,7 +77,8 @@ def check_one(page, numero: str) -> str:
             ctype = response.headers.get("content-type", "")
             rtype = response.request.resource_type
             if rtype in ("xhr", "fetch") or "json" in ctype:
-                interesting_responses.append(f"{response.status} {rtype} {response.url}")
+                short_url = response.url[:120] + ("…" if len(response.url) > 120 else "")
+                interesting_responses.append(f"{response.status} {rtype} {short_url}")
         except Exception:
             pass
 
@@ -128,7 +129,10 @@ def send_telegram(message: str) -> None:
     chat_id = os.environ["TELEGRAM_CHAT_ID"]
     url = f"https://api.telegram.org/bot{token}/sendMessage"
     resp = requests.post(url, data={"chat_id": chat_id, "text": message}, timeout=15)
-    resp.raise_for_status()
+    if not resp.ok:
+        # Mostramos el detalle que manda Telegram (ej: "chat not found",
+        # "bot was blocked by the user") en vez de solo el código HTTP.
+        raise RuntimeError(f"Telegram respondió {resp.status_code}: {resp.text}")
 
 
 def main() -> None:
@@ -187,8 +191,18 @@ def main() -> None:
     if delivered_now:
         lines = "\n".join(f"• {n}" for n in delivered_now)
         plural = "s" if len(delivered_now) > 1 else ""
-        send_telegram(f"📦 Guía{plural} entregada{plural} en Via Cargo:\n{lines}")
-        print(f"Notificación enviada por {len(delivered_now)} guía(s) entregada(s).")
+        try:
+            send_telegram(f"📦 Guía{plural} entregada{plural} en Via Cargo:\n{lines}")
+            print(f"Notificación enviada por {len(delivered_now)} guía(s) entregada(s).")
+        except Exception as e:
+            # Si Telegram falla, NO perdemos la detección: dejamos esas
+            # guías en la lista de pendientes para reintentar el aviso en
+            # la próxima corrida, en vez de cortar todo el script acá.
+            print(f"No se pudo avisar por Telegram: {e}")
+            print("Esas guías quedan pendientes para reintentar el aviso.")
+            for item in guias:
+                if item.get("numero", "").strip() in delivered_now:
+                    still_pending.append(item)
 
     save_guias(still_pending)
     print(f"Guías que siguen pendientes: {len(still_pending)}")
