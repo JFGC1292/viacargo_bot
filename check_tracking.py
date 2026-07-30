@@ -25,10 +25,6 @@ DELIVERED_KEYWORDS = [
     "entrega realizada",
     "entrega exitosa",
     "envío entregado",
-    "Entregado",
-    "Entregada",
-    "ENTREGADA",
-    "ENTREGADO",
 ]
 
 
@@ -47,11 +43,30 @@ def save_guias(items: list[dict]) -> None:
 
 
 def check_one(page, numero: str) -> str:
-    """Devuelve el texto renderizado de la página de seguimiento de una guía."""
+    """Devuelve el texto renderizado de la página de seguimiento de una guía.
+
+    En vez de esperar un tiempo fijo, espera a que el texto de la página
+    deje de cambiar (indicio de que ya terminó de cargar el estado real,
+    no solo el esqueleto/menú del sitio), hasta un máximo de ~20s.
+    """
     url = f"{BASE_URL}{numero}"
-    page.goto(url, wait_until="networkidle", timeout=60000)
-    page.wait_for_timeout(2500)
-    return page.inner_text("body")
+    page.goto(url, wait_until="domcontentloaded", timeout=60000)
+
+    previous_length = -1
+    stable_checks = 0
+    text = ""
+    for _ in range(20):
+        page.wait_for_timeout(1000)
+        text = page.inner_text("body")
+        if len(text) == previous_length:
+            stable_checks += 1
+            if stable_checks >= 2:
+                break
+        else:
+            stable_checks = 0
+        previous_length = len(text)
+
+    return text
 
 
 def _normalize(s: str) -> str:
@@ -105,7 +120,7 @@ def main() -> None:
                 continue
 
             # Log corto de diagnóstico
-            print("  Extracto:", " ".join(text.split())[:200])
+            print("  Extracto:", " ".join(text.split())[:400])
 
             if is_delivered(text):
                 print(f"  -> ENTREGADO")
