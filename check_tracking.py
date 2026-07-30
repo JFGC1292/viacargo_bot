@@ -8,6 +8,7 @@ Pensado para correr en GitHub Actions, disparado por el workflow
 
 import json
 import os
+import re
 import sys
 import time
 
@@ -17,18 +18,23 @@ from playwright.sync_api import sync_playwright
 BASE_URL = "https://viacargo.com.ar/seguimiento-de-envio/"
 DATA_FILE = "guias.json"
 
+DATE_PATTERN = re.compile(r"\d{2}/\d{2}/\d{4}")
+
 # Palabras clave que indican que el paquete llegó a destino.
-# Ajustá esta lista según lo que veas en el log "Texto detectado" del
-# primer run manual (workflow_dispatch) del workflow.
 DELIVERED_KEYWORDS = [
     "entregado",
     "entregada",
     "entrega realizada",
     "entrega exitosa",
     "envío entregado",
-    "ENTREGADO",
-    "ENTREGADA",
 ]
+
+# User-agent de un Chrome de escritorio normal, para no parecer un bot
+# desde el vamos.
+REAL_USER_AGENT = (
+    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
+    "(KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36"
+)
 
 
 def load_guias() -> list[dict]:
@@ -45,31 +51,62 @@ def save_guias(items: list[dict]) -> None:
         f.write("\n")
 
 
-def check_one(page, numero: str) -> str:
-    """Devuelve el texto renderizado de la página de seguimiento de una guía.
+def collect_all_frames_text(page) -> str:
+    """Junta el texto de TODOS los frames de la página (por si el timeline
+    del envío está dentro de un iframe embebido, no en el documento
+    principal)."""
+    chunks = []
+    for frame in page.frames:
+        try:
+            chunks.append(frame.locator("body").inner_text(timeout=2000))
+        except Exception:
+            pass
+    return "\n".join(chunks)
 
-    El menú/encabezado del sitio se estabiliza casi al instante, pero el
-    timeline real del envío tarda más en aparecer. Por eso no alcanza con
-    esperar a que el texto "deje de cambiar": hay que esperar a que
-    aparezca algo que solo existe una vez cargado el historial real, como
-    una fecha con formato DD/MM/AAAA (aparece en cada evento del timeline).
-    """
+
+def check_one(page, numero: str) -> str:
+    """Devuelve el texto renderizado (de todos los frames) de la página de
+    seguimiento de una guía. Espera activamente a que aparezca una fecha
+    con formato DD/MM/AAAA, señal de que el timeline real ya cargó."""
     url = f"{BASE_URL}{numero}"
+
+    interesting_responses = []
+
+    def log_response(response):
+        try:
+            ctype = response.headers.get("content-type", "")
+            rtype = response.request.resource_type
+            if rtype in ("xhr", "fetch") or "json" in ctype:
+                interesting_responses.append(f"{response.status} {rtype} {response.url}")
+        except Exception:
+            pass
+
+    page.on("response", log_response)
     page.goto(url, wait_until="domcontentloaded", timeout=60000)
 
-    try:
-        page.wait_for_function(
-            "() => /\\d{2}\\/\\d{2}\\/\\d{4}/.test(document.body.innerText)",
-            timeout=20000,
-        )
-    except Exception:
-        # Si en 20s no apareció ninguna fecha, seguimos igual con lo que
-        # haya en pantalla (probablemente un error real de la guía, o el
-        # sitio tardó más de lo esperado).
-        pass
+    text = ""
+    found = False
+    for _ in range(20):
+        text = collect_all_frames_text(page)
+        if DATE_PATTERN.search(text):
+            found = True
+            break
+        page.wait_for_timeout(1000)
 
-    page.wait_for_timeout(800)  # margen chico extra por si sigue pintando
-    return page.inner_text("body")
+    page.remove_listener("response", log_response)
+
+    # Diagnóstico: qué llamadas de red a APIs/XHR se vieron durante la carga.
+    if interesting_responses:
+        print("  Llamadas de red detectadas:")
+        for r in interesting_responses[:15]:
+            print(f"    {r}")
+    else:
+        print("  (no se detectaron llamadas XHR/fetch/JSON durante la carga)")
+
+    print(f"  Frames en la página: {len(page.frames)}")
+    print(f"  ¿Se encontró una fecha en el texto?: {'sí' if found else 'no'}")
+
+    return text
 
 
 def _normalize(s: str) -> str:
@@ -108,7 +145,19 @@ def main() -> None:
 
     with sync_playwright() as p:
         browser = p.chromium.launch()
-        page = browser.new_page()
+        context = browser.new_context(
+            user_agent=REAL_USER_AGENT,
+            locale="es-AR",
+            viewport={"width": 1366, "height": 900},
+        )
+        # Le sacamos la marca de "navegador automatizado" más obvia.
+        context.add_init_script(
+            "Object.defineProperty(navigator, 'webdriver', { get: () => undefined });"
+        )
+        page = context.new_page()
+
+        webdriver_flag = page.evaluate("navigator.webdriver")
+        print(f"navigator.webdriver reportado: {webdriver_flag!r}")
 
         for item in guias:
             numero = item.get("numero", "").strip()
@@ -122,17 +171,16 @@ def main() -> None:
                 still_pending.append(item)
                 continue
 
-            # Log corto de diagnóstico
             print("  Extracto:", " ".join(text.split())[:400])
 
             if is_delivered(text):
-                print(f"  -> ENTREGADO")
+                print("  -> ENTREGADO")
                 delivered_now.append(numero)
             else:
                 print("  -> todavía en tránsito")
                 still_pending.append(item)
 
-            time.sleep(1)  # margen entre requests, prudente con el sitio
+            time.sleep(1)
 
         browser.close()
 
