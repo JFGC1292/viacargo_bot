@@ -29,6 +29,8 @@ DELIVERED_KEYWORDS = [
     "entrega realizada",
     "entrega exitosa",
     "envío entregado",
+    "ENTREGADO",
+    "ENTREGADA",
 ]
 
 # User-agent de un Chrome de escritorio normal, para no parecer un bot
