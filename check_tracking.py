@@ -50,9 +50,18 @@ def check_one(page, numero: str) -> str:
     return page.inner_text("body")
 
 
+def _normalize(s: str) -> str:
+    """minúsculas + sin acentos, para que no importe cómo esté escrito."""
+    import unicodedata
+
+    s = s.lower()
+    s = unicodedata.normalize("NFKD", s)
+    return "".join(c for c in s if not unicodedata.combining(c))
+
+
 def is_delivered(text: str) -> bool:
-    lowered = text.lower()
-    return any(k in lowered for k in DELIVERED_KEYWORDS)
+    normalized_text = _normalize(text)
+    return any(_normalize(keyword) in normalized_text for keyword in DELIVERED_KEYWORDS)
 
 
 def send_telegram(message: str) -> None:
