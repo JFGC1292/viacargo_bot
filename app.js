@@ -1,7 +1,8 @@
 /* ============================================================
    PANEL DE GUÍAS — lógica de la app
-   Guarda la lista de guías pendientes en un archivo guias.json
-   dentro de tu propio repo de GitHub, usando la API de Contents.
+   Guarda la lista de guías (pendientes + historial de entregadas) en
+   un archivo guias.json dentro de tu propio repo de GitHub, usando la
+   API de Contents.
    ============================================================ */
 
 const DATA_FILE = 'guias.json';
@@ -39,7 +40,22 @@ function b64DecodeUtf8(str) {
 
 /* ---------- GitHub Contents API ---------- */
 
-async function fetchGuiasFile(cfg) {
+function emptyData() {
+  return { pendientes: [], entregadas: [] };
+}
+
+/** Acepta tanto el formato nuevo ({pendientes, entregadas}) como el
+ *  formato viejo (array plano = pendientes), para no romper si algo
+ *  quedó guardado con la versión anterior. */
+function normalizeData(raw) {
+  if (Array.isArray(raw)) return { pendientes: raw, entregadas: [] };
+  return {
+    pendientes: Array.isArray(raw?.pendientes) ? raw.pendientes : [],
+    entregadas: Array.isArray(raw?.entregadas) ? raw.entregadas : [],
+  };
+}
+
+async function fetchDataFile(cfg) {
   const res = await fetch(`${apiUrl(cfg)}?ref=${encodeURIComponent(cfg.branch)}&t=${Date.now()}`, {
     headers: {
       Authorization: `Bearer ${cfg.token}`,
@@ -48,28 +64,27 @@ async function fetchGuiasFile(cfg) {
   });
 
   if (res.status === 404) {
-    return { items: [], sha: null };
+    return { data: emptyData(), sha: null };
   }
   if (!res.ok) {
     throw new Error(`GitHub respondió ${res.status} al leer ${DATA_FILE}`);
   }
 
-  const data = await res.json();
-  const content = b64DecodeUtf8(data.content.replace(/\n/g, ''));
-  let items = [];
+  const payload = await res.json();
+  const content = b64DecodeUtf8(payload.content.replace(/\n/g, ''));
+  let data = emptyData();
   try {
-    items = JSON.parse(content);
-    if (!Array.isArray(items)) items = [];
+    data = normalizeData(JSON.parse(content));
   } catch {
-    items = [];
+    data = emptyData();
   }
-  return { items, sha: data.sha };
+  return { data, sha: payload.sha };
 }
 
-async function writeGuiasFile(cfg, items, sha, message) {
+async function writeDataFile(cfg, data, sha, message) {
   const body = {
     message,
-    content: b64EncodeUtf8(JSON.stringify(items, null, 2)),
+    content: b64EncodeUtf8(JSON.stringify(data, null, 2)),
     branch: cfg.branch,
   };
   if (sha) body.sha = sha;
@@ -102,50 +117,81 @@ function fmtDate(iso) {
   }
 }
 
-function render(items) {
-  const area = el('listArea');
-  el('listCount').textContent =
-    items.length === 0 ? 'sin pendientes' : `${items.length} guía${items.length === 1 ? '' : 's'} pendiente${items.length === 1 ? '' : 's'}`;
+function pendingCardHtml(it) {
+  return `
+    <div class="card" data-numero="${it.numero}">
+      <div class="card-main">
+        <div class="card-number">${it.numero}</div>
+        <div class="card-date">agregado el ${fmtDate(it.agregado)}</div>
+        <div class="route">
+          <div class="track"></div>
+          <div class="pkg">📦</div>
+        </div>
+      </div>
+      <div style="display:flex; align-items:center; gap:8px;">
+        <span class="status">En tránsito</span>
+        <button class="remove-btn" title="Quitar de la lista" aria-label="Quitar guía ${it.numero}" data-remove="${it.numero}">
+          <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M18 6 6 18M6 6l12 12"/></svg>
+        </button>
+      </div>
+    </div>`;
+}
 
-  if (items.length === 0) {
-    area.innerHTML = `
+function deliveredCardHtml(it) {
+  return `
+    <div class="card card-delivered" data-numero="${it.numero}">
+      <div class="card-main">
+        <div class="card-number">${it.numero}</div>
+        <div class="card-date">entregada el ${fmtDate(it.entregado_el)}</div>
+      </div>
+      <span class="status status-delivered">✓ Entregada</span>
+    </div>`;
+}
+
+function render(data) {
+  const { pendientes, entregadas } = data;
+  const pendArea = el('listArea');
+  el('listCount').textContent =
+    pendientes.length === 0
+      ? 'sin pendientes'
+      : `${pendientes.length} guía${pendientes.length === 1 ? '' : 's'} pendiente${pendientes.length === 1 ? '' : 's'}`;
+
+  if (pendientes.length === 0) {
+    pendArea.innerHTML = `
       <div class="empty">
         <strong>No hay guías pendientes</strong>
         Cargá un número arriba para empezar a rastrearlo.
       </div>`;
-    return;
+  } else {
+    pendArea.innerHTML = `<div class="cards">${pendientes.map(pendingCardHtml).join('')}</div>`;
+    pendArea.querySelectorAll('[data-remove]').forEach((btn) => {
+      btn.addEventListener('click', () => removeGuia(btn.getAttribute('data-remove')));
+    });
   }
 
-  area.innerHTML = `<div class="cards">${items
-    .map(
-      (it) => `
-      <div class="card" data-numero="${it.numero}">
-        <div class="card-main">
-          <div class="card-number">${it.numero}</div>
-          <div class="card-date">agregado el ${fmtDate(it.agregado)}</div>
-          <div class="route">
-            <div class="track"></div>
-            <div class="pkg">📦</div>
-          </div>
-        </div>
-        <div style="display:flex; align-items:center; gap:8px;">
-          <span class="status">En tránsito</span>
-          <button class="remove-btn" title="Quitar de la lista" aria-label="Quitar guía ${it.numero}" data-remove="${it.numero}">
-            <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M18 6 6 18M6 6l12 12"/></svg>
-          </button>
-        </div>
-      </div>`
-    )
-    .join('')}</div>`;
+  const delSection = el('deliveredSection');
+  const delArea = el('deliveredArea');
+  el('deliveredCount').textContent =
+    entregadas.length === 0 ? '' : `${entregadas.length}`;
 
-  area.querySelectorAll('[data-remove]').forEach((btn) => {
-    btn.addEventListener('click', () => removeGuia(btn.getAttribute('data-remove')));
-  });
+  if (entregadas.length === 0) {
+    delSection.style.display = 'none';
+  } else {
+    delSection.style.display = '';
+    const ordered = [...entregadas].sort(
+      (a, b) => new Date(b.entregado_el || 0) - new Date(a.entregado_el || 0)
+    );
+    delArea.innerHTML = `<div class="cards">${ordered.map(deliveredCardHtml).join('')}</div>`;
+  }
 }
 
 /* ---------- State + actions ---------- */
 
-let state = { items: [], sha: null };
+let state = { data: emptyData(), sha: null };
+
+function allKnownNumeros() {
+  return [...state.data.pendientes, ...state.data.entregadas].map((it) => it.numero);
+}
 
 async function refresh() {
   const cfg = loadConfig();
@@ -156,14 +202,15 @@ async function refresh() {
         Abrí el ⚙ de arriba y cargá tu usuario, repo, rama y token de GitHub.
       </div>`;
     el('listCount').textContent = '—';
+    el('deliveredSection').style.display = 'none';
     return;
   }
   el('listArea').innerHTML = `<p class="loading">Cargando guías…</p>`;
   try {
-    const { items, sha } = await fetchGuiasFile(cfg);
-    items.sort((a, b) => new Date(b.agregado) - new Date(a.agregado));
-    state = { items, sha };
-    render(items);
+    const { data, sha } = await fetchDataFile(cfg);
+    data.pendientes.sort((a, b) => new Date(b.agregado) - new Date(a.agregado));
+    state = { data, sha };
+    render(data);
   } catch (err) {
     el('listArea').innerHTML = `<div class="empty"><strong>No se pudo cargar</strong>${err.message}</div>`;
   }
@@ -175,17 +222,24 @@ async function addGuia(numero) {
     setFormMsg('Configurá primero la conexión con el ⚙ de arriba.', 'error');
     return;
   }
-  if (state.items.some((it) => it.numero === numero)) {
-    setFormMsg('Esa guía ya está en la lista.', 'error');
+  if (allKnownNumeros().includes(numero)) {
+    setFormMsg('Esa guía ya está cargada (pendiente o entregada).', 'error');
     return;
   }
 
   setAddBusy(true);
   try {
-    const { items, sha } = await fetchGuiasFile(cfg); // por si cambió desde otra pestaña/acción
-    const updated = [...items, { numero, agregado: new Date().toISOString() }];
-    await writeGuiasFile(cfg, updated, sha, `Agregar guía ${numero}`);
-    state = { items: updated, sha: null };
+    const { data, sha } = await fetchDataFile(cfg); // por si cambió desde otra pestaña/acción
+    if (data.pendientes.some((it) => it.numero === numero) || data.entregadas.some((it) => it.numero === numero)) {
+      setFormMsg('Esa guía ya está cargada (pendiente o entregada).', 'error');
+      return;
+    }
+    const updated = {
+      pendientes: [...data.pendientes, { numero, agregado: new Date().toISOString() }],
+      entregadas: data.entregadas,
+    };
+    await writeDataFile(cfg, updated, sha, `Agregar guía ${numero}`);
+    state = { data: updated, sha: null };
     render(updated);
     setFormMsg('Guía cargada. Va a revisarse en el próximo chequeo.', 'ok');
     el('guideInput').value = '';
@@ -200,10 +254,13 @@ async function removeGuia(numero) {
   const cfg = loadConfig();
   if (!configComplete(cfg)) return;
   try {
-    const { items, sha } = await fetchGuiasFile(cfg);
-    const updated = items.filter((it) => it.numero !== numero);
-    await writeGuiasFile(cfg, updated, sha, `Quitar guía ${numero}`);
-    state = { items: updated, sha: null };
+    const { data, sha } = await fetchDataFile(cfg);
+    const updated = {
+      pendientes: data.pendientes.filter((it) => it.numero !== numero),
+      entregadas: data.entregadas,
+    };
+    await writeDataFile(cfg, updated, sha, `Quitar guía pendiente ${numero}`);
+    state = { data: updated, sha: null };
     render(updated);
   } catch (err) {
     alert(`No se pudo quitar la guía: ${err.message}`);

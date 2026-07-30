@@ -74,14 +74,35 @@ tu cuenta, y no lo compartas.
    en tu repo al instante.
 4. Cada 30 minutos, el workflow de GitHub Actions revisa todas las guías
    pendientes. Las que llegaron: te las avisa por Telegram (puede
-   agrupar varias en un solo mensaje) y las borra de la lista. El sitio
-   se actualiza solo la próxima vez que lo abras.
+   agrupar varias en un solo mensaje) y las mueve al historial de
+   "Entregadas" — no se borran. El sitio se actualiza solo la próxima vez
+   que lo abras.
+
+## Cómo funciona el historial (no se borran las entregas)
+
+`guias.json` tiene esta forma:
+
+```json
+{
+  "pendientes": [ { "numero": "...", "agregado": "..." } ],
+  "entregadas": [ { "numero": "...", "agregado": "...", "entregado_el": "..." } ]
+}
+```
+
+Cuando una guía llega, el workflow la avisa por Telegram y la **mueve** de
+`pendientes` a `entregadas`. El sitio muestra ambas listas: "En depósito"
+arriba y "Entregadas" más abajo.
+
+No se puede cargar dos veces la misma guía: el sitio revisa tanto la lista
+de pendientes como la de entregadas antes de agregar una nueva.
+
+Si Telegram falla al avisar, la guía se mantiene en `pendientes` (no pasa a
+entregadas) para reintentar el aviso en la corrida siguiente.
 
 ## Ajustar la detección de "entregado"
 
-No pude ver el HTML final de Via Cargo (el estado se carga con
-JavaScript), así que la lista `DELIVERED_KEYWORDS` en `check_tracking.py`
-es una aproximación. Para afinarla:
+La lista `DELIVERED_KEYWORDS` en `check_tracking.py` se puede ajustar según
+lo que veas en el log. Para afinarla:
 
 1. En el repo, pestaña **Actions** → "Seguimiento Via Cargo" → **Run
    workflow** (con al menos una guía cargada).
@@ -90,11 +111,15 @@ es una aproximación. Para afinarla:
 3. Si la frase real de "entregado" no está en la lista, agregala en
    `check_tracking.py` y subí el cambio.
 
+Si tu `guias.json` ya tenía el formato viejo (un array plano de guías
+pendientes), no hace falta que hagas nada manual: tanto el sitio como el
+script lo reconocen y lo convierten solos la próxima vez que guarden.
+
 ## Notas
 
 - GitHub apaga los workflows `schedule` en repos sin actividad después de
   60 días. Un push o correrlo manual desde "Actions" lo reactiva.
-- Podés borrar una guía manualmente desde el sitio con la ✕, sin esperar
-  a que llegue.
-- Si algún día querés dejar de rastrear todo, simplemente vaciá
-  `guias.json` (dejalo como `[]`).
+- Podés quitar una guía pendiente manualmente desde el sitio con la ✕
+  (esto solo aplica a pendientes, no a entregadas).
+- Si algún día querés arrancar de cero, dejá `guias.json` como
+  `{"pendientes": [], "entregadas": []}`.

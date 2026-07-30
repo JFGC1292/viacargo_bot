@@ -388,6 +388,22 @@ h1 {
 
 .loading { color: var(--muted); font-size: 13.5px; padding: 10px 2px; }
 
+/* ---------- Entregadas ---------- */
+
+.delivered-head { margin-top: 30px; }
+
+.card-delivered {
+  grid-template-columns: 1fr auto;
+  opacity: 0.92;
+}
+.card-delivered .card-number { color: var(--ink-soft); }
+
+.status-delivered {
+  color: var(--green);
+  background: var(--green-soft);
+  border-color: rgba(63, 125, 88, 0.4);
+}
+
 footer.note {
   margin-top: 36px;
   padding-top: 18px;

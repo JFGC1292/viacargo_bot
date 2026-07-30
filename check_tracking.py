@@ -1,6 +1,7 @@
 """
 Recorre todas las guías pendientes en guias.json, revisa cada una en
-viacargo.com.ar, avisa por Telegram las que llegaron y las saca de la lista.
+viacargo.com.ar, avisa por Telegram las que llegaron y las mueve al
+historial de entregadas (no se borran).
 
 Pensado para correr en GitHub Actions, disparado por el workflow
 .github/workflows/tracking.yml
@@ -11,6 +12,7 @@ import os
 import re
 import sys
 import time
+from datetime import datetime, timezone
 
 import requests
 from playwright.sync_api import sync_playwright
@@ -37,17 +39,26 @@ REAL_USER_AGENT = (
 )
 
 
-def load_guias() -> list[dict]:
+def load_data() -> dict:
+    """guias.json tiene la forma {"pendientes": [...], "entregadas": [...]}.
+    Compatible además con el formato viejo (un array plano = pendientes)."""
     if not os.path.exists(DATA_FILE):
-        return []
+        return {"pendientes": [], "entregadas": []}
     with open(DATA_FILE, "r", encoding="utf-8") as f:
         content = f.read().strip()
-        return json.loads(content) if content else []
+    if not content:
+        return {"pendientes": [], "entregadas": []}
+    data = json.loads(content)
+    if isinstance(data, list):
+        return {"pendientes": data, "entregadas": []}
+    data.setdefault("pendientes", [])
+    data.setdefault("entregadas", [])
+    return data
 
 
-def save_guias(items: list[dict]) -> None:
+def save_data(data: dict) -> None:
     with open(DATA_FILE, "w", encoding="utf-8") as f:
-        json.dump(items, f, ensure_ascii=False, indent=2)
+        json.dump(data, f, ensure_ascii=False, indent=2)
         f.write("\n")
 
 
@@ -96,7 +107,6 @@ def check_one(page, numero: str) -> str:
 
     page.remove_listener("response", log_response)
 
-    # Diagnóstico: qué llamadas de red a APIs/XHR se vieron durante la carga.
     if interesting_responses:
         print("  Llamadas de red detectadas:")
         for r in interesting_responses[:15]:
@@ -130,22 +140,22 @@ def send_telegram(message: str) -> None:
     url = f"https://api.telegram.org/bot{token}/sendMessage"
     resp = requests.post(url, data={"chat_id": chat_id, "text": message}, timeout=15)
     if not resp.ok:
-        # Mostramos el detalle que manda Telegram (ej: "chat not found",
-        # "bot was blocked by the user") en vez de solo el código HTTP.
         raise RuntimeError(f"Telegram respondió {resp.status_code}: {resp.text}")
 
 
 def main() -> None:
-    guias = load_guias()
+    data = load_data()
+    pendientes = data["pendientes"]
+    entregadas = data["entregadas"]
 
-    if not guias:
+    if not pendientes:
         print("No hay guías pendientes en guias.json. Nada para chequear.")
         return
 
-    print(f"Chequeando {len(guias)} guía(s) pendiente(s)...")
+    print(f"Chequeando {len(pendientes)} guía(s) pendiente(s)...")
 
     still_pending = []
-    delivered_now = []
+    delivered_items = []  # items completos (con su fecha original "agregado")
 
     with sync_playwright() as p:
         browser = p.chromium.launch()
@@ -154,7 +164,6 @@ def main() -> None:
             locale="es-AR",
             viewport={"width": 1366, "height": 900},
         )
-        # Le sacamos la marca de "navegador automatizado" más obvia.
         context.add_init_script(
             "Object.defineProperty(navigator, 'webdriver', { get: () => undefined });"
         )
@@ -163,7 +172,7 @@ def main() -> None:
         webdriver_flag = page.evaluate("navigator.webdriver")
         print(f"navigator.webdriver reportado: {webdriver_flag!r}")
 
-        for item in guias:
+        for item in pendientes:
             numero = item.get("numero", "").strip()
             if not numero:
                 continue
@@ -179,7 +188,7 @@ def main() -> None:
 
             if is_delivered(text):
                 print("  -> ENTREGADO")
-                delivered_now.append(numero)
+                delivered_items.append(item)
             else:
                 print("  -> todavía en tránsito")
                 still_pending.append(item)
@@ -188,24 +197,27 @@ def main() -> None:
 
         browser.close()
 
-    if delivered_now:
-        lines = "\n".join(f"• {n}" for n in delivered_now)
-        plural = "s" if len(delivered_now) > 1 else ""
+    if delivered_items:
+        numeros = [it.get("numero", "").strip() for it in delivered_items]
+        lines = "\n".join(f"• {n}" for n in numeros)
+        plural = "s" if len(numeros) > 1 else ""
         try:
             send_telegram(f"📦 Guía{plural} entregada{plural} en Via Cargo:\n{lines}")
-            print(f"Notificación enviada por {len(delivered_now)} guía(s) entregada(s).")
+            print(f"Notificación enviada por {len(numeros)} guía(s) entregada(s).")
+            now_iso = datetime.now(timezone.utc).isoformat()
+            for it in delivered_items:
+                entregadas.append({**it, "entregado_el": now_iso})
         except Exception as e:
             # Si Telegram falla, NO perdemos la detección: dejamos esas
-            # guías en la lista de pendientes para reintentar el aviso en
-            # la próxima corrida, en vez de cortar todo el script acá.
+            # guías pendientes para reintentar el aviso en la próxima
+            # corrida, en vez de darlas por entregadas sin haber avisado.
             print(f"No se pudo avisar por Telegram: {e}")
             print("Esas guías quedan pendientes para reintentar el aviso.")
-            for item in guias:
-                if item.get("numero", "").strip() in delivered_now:
-                    still_pending.append(item)
+            still_pending.extend(delivered_items)
 
-    save_guias(still_pending)
+    save_data({"pendientes": still_pending, "entregadas": entregadas})
     print(f"Guías que siguen pendientes: {len(still_pending)}")
+    print(f"Total en historial de entregadas: {len(entregadas)}")
 
 
 if __name__ == "__main__":
