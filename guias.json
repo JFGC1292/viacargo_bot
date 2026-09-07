@@ -1,5 +1,10 @@
 {
-  "pendientes": [],
+  "pendientes": [
+    {
+      "numero": "999038217309",
+      "agregado": "2026-09-07T14:52:35.288Z"
+    }
+  ],
   "entregadas": [
     {
       "numero": "999031018875",
